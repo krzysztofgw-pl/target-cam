@@ -1,22 +1,31 @@
 name: Release
-# Push a tag matching VERSION (e.g. VERSION=1.1.0, tag v1.1.0) to publish an update for the Pi.
+# Bump VERSION on main (e.g. 1.0.0 -> 1.1.0) to publish an update for the Pi.
+# Creates tag v<VERSION> + release with target-cam-<VERSION>.tar.gz and .sha256; skipped if it already exists.
 on:
   push:
-    tags: ["v*.*.*"]
+    branches: [main]
+    paths: [VERSION]
+  workflow_dispatch:
 permissions:
   contents: write
 jobs:
   release:
     runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - name: Tag must match VERSION
-        run: test "v$(tr -d '[:space:]' < VERSION)" = "$GITHUB_REF_NAME"
-      - run: python -m unittest discover -s tests
-      - run: SOURCE_DATE_EPOCH=$(git log -1 --format=%ct) bash tools/build-release.sh
-      - env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" dist/* --title "$GITHUB_REF_NAME" --generate-notes
+      - id: v
+        run: |
+          V=$(tr -d '[:space:]' < VERSION)
+          echo "tag=v$V" >> "$GITHUB_OUTPUT"
+          if gh release view "v$V" >/dev/null 2>&1; then echo "exists=1" >> "$GITHUB_OUTPUT"; fi
+      - if: steps.v.outputs.exists != '1'
+        run: python -m unittest discover -s tests
+      - if: steps.v.outputs.exists != '1'
+        run: SOURCE_DATE_EPOCH=$(git log -1 --format=%ct) bash tools/build-release.sh
+      - if: steps.v.outputs.exists != '1'
+        run: gh release create "${{ steps.v.outputs.tag }}" dist/* --target "$GITHUB_SHA" --title "${{ steps.v.outputs.tag }}" --generate-notes

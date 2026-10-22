@@ -48,9 +48,9 @@ echo 'github_pat_...' > /data/app/github_token && chmod 600 /data/app/github_tok
 
 ### Wydanie nowej wersji
 
-1. Zmień `VERSION` (np. `1.1.0`), commit na `main`.
-2. `git tag v1.1.0 && git push origin v1.1.0`
-3. Workflow *Release* uruchamia testy, buduje `target-cam-1.1.0.tar.gz` + `.sha256` i publikuje wydanie.
+1. Zmień `VERSION` (np. `1.1.0`) i wypchnij / zmerguj to na `main`.
+2. Workflow *Release* uruchamia testy, buduje `target-cam-1.1.0.tar.gz` + `.sha256`
+   i publikuje wydanie `v1.1.0` (tag tworzy się sam). Opis wydania widać na Pi przed instalacją.
 
 ## Przejście z dotychczasowej instalacji
 
