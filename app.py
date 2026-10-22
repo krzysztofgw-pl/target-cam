@@ -14,6 +14,8 @@ from pathlib import Path
 from flask import Flask, abort, jsonify, request, send_from_directory
 from PIL import Image
 
+import updater
+
 BASE = Path(os.environ.get("TARGET_DIR", Path.home() / "target"))
 PREV, THUMB, TMP = BASE / "prev", BASE / "thumb", BASE / "tmp"
 STATIC = Path(__file__).resolve().parent / "static"
@@ -473,7 +475,87 @@ def no_store(resp):
 
 @app.get("/status")
 def status():
-    return no_store(jsonify(modem=modem_info(), pi=pi_info()))
+    return no_store(jsonify(modem=modem_info(), pi=pi_info(), sw=updater.status()))
+
+
+# ---------- updates (see updater.py; installing is always a manual tap) ----------
+
+UPDATE_CHECK = os.environ.get("UPDATE_CHECK", "1") != "0"
+
+
+def restart_soon():
+    # systemd (Restart=always) starts launcher.py again, which picks the new current release
+    def go():
+        time.sleep(1.5)
+        live.stop("restart")
+        os._exit(0)
+    threading.Thread(target=go, daemon=True).start()
+
+
+def update_call(fn, *args):
+    if updater.lock.locked():
+        return jsonify(error="update already running"), 409
+    try:
+        return no_store(jsonify(result=fn(*args), sw=updater.status()))
+    except updater.UpdateError as e:
+        return no_store(jsonify(error=str(e), sw=updater.status())), 502
+    except OSError as e:
+        return no_store(jsonify(error="storage: %s" % e, sw=updater.status())), 500
+
+
+@app.get("/version")
+def version():
+    return no_store(jsonify(updater.status()))
+
+
+@app.post("/update/check")
+def update_check():
+    return update_call(updater.check)
+
+
+@app.post("/update/install")
+def update_install():
+    r = update_call(updater.install_latest)
+    if isinstance(r, tuple):
+        return r
+    restart_soon()
+    return r
+
+
+@app.post("/update/rollback")
+def update_rollback():
+    to = (request.get_json(silent=True) or {}).get("to")
+    r = update_call(updater.use_legacy if to == "legacy" else updater.rollback)
+    if isinstance(r, tuple):
+        return r
+    restart_soon()
+    return r
+
+
+def background_update_tasks():
+    # 1) tell the launcher this release starts fine (clears its start-attempt counter)
+    rel = Path(__file__).resolve().parent.name
+    for _ in range(30):
+        time.sleep(2)
+        try:
+            with urllib.request.urlopen("http://127.0.0.1:%d/version" % PORT, timeout=5):
+                pass
+        except Exception:
+            continue
+        if os.environ.get("APP_SLOT") in ("current", "previous"):
+            updater.mark_good(rel)
+        break
+    # 2) check for a new version once after boot; LTE and the clock (TLS) may need a while
+    if not UPDATE_CHECK:
+        return
+    time.sleep(60)
+    for _ in range(12):
+        try:
+            updater.check()
+            return
+        except Exception as e:
+            print("update check:", e, flush=True)
+        time.sleep(600)
 
 
 # ---------- photos ----------
@@ -665,6 +747,10 @@ header h1{flex:1;margin:0;font-size:18px;font-weight:650;letter-spacing:.2px}
 #iss.bad{background:#2c1218;color:var(--bad)}
 #pf{display:flex;justify-content:space-between;align-items:center;margin-top:10px;color:var(--mut);font-size:12px}
 #prf{background:var(--btn);border-radius:9px;padding:5px 12px;font-size:12.5px}
+#pop .ua{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
+#pop .ua button{background:var(--btn);border-radius:9px;padding:5px 12px;font-size:12.5px}
+#pop .ua button.go{background:var(--acc);color:#04271a;font-weight:650}
+#pop .note{color:var(--mut);font-size:12px;margin-top:4px;white-space:pre-line;max-height:7em;overflow:auto}
 #sheet{position:fixed;z-index:30;left:0;right:0;bottom:calc(92px + env(safe-area-inset-bottom));padding:0 12px}
 #sheet>div{max-width:760px;margin:0 auto;background:var(--card);border:1px solid var(--line);border-radius:18px;padding:14px 16px;box-shadow:0 14px 40px #000b}
 #sheet h4{margin:0 0 10px;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--mut);font-weight:600}
@@ -819,6 +905,8 @@ function assess(j){
   if(p.temp_c>=80){worse('bad');issues.push('Temperature '+p.temp_c+' °C')}
   else if(p.temp_c>=70){worse('warn');issues.push('Temperature '+p.temp_c+' °C')}
   if(p.disk_free_gb!=null&&p.disk_free_gb<2){worse('warn');issues.push('Low disk space')}
+  const w=j.sw||{};
+  if(w.fallback){worse('warn');issues.push('Fallback: '+w.fallback+' (running '+w.slot+' '+(w.version||'?')+')')}
   return{nb,lvl,issues,t};
 }
 let last=null,lastAt=0;
@@ -858,17 +946,67 @@ function paintPop(){
     P.append(row('Power',a.t.now.length?a.t.now.join(', '):a.t.seen.length?'OK now · '+a.t.seen[0]+' seen':(p.throttled?'OK':'?'),a.t.now.length?'bad':a.t.seen.length?'warn':'ok'));
     P.append(row('Free space',(p.disk_free_gb??'?')+' GB'));
     P.append(row('Photos',String(p.photos??'?')));
+    if(j.sw)paintSw(P,j.sw);
   }
   const f=document.createElement('div');f.id='pf';
   const s=document.createElement('span');s.textContent=lastAt?'Updated '+new Date(lastAt).toTimeString().slice(0,8):'';
   const b=document.createElement('button');b.id='prf';b.textContent='Refresh';b.onclick=e=>{e.stopPropagation();info(true)};
   f.append(s,b);P.append(f);
 }
+// ---- software version + updates ----
+const SLOT={current:'updated',previous:'previous',legacy:'built-in'};
+let upBusy=false,upSeen=false;
+function paintSw(P,w){
+  P.append(document.createElement('hr'));
+  const h=document.createElement('h4');h.textContent='Software';P.append(h);
+  P.append(row('Version',(w.version||'?')+' · '+(SLOT[w.slot]||w.slot),w.slot==='current'?'':'warn'));
+  if(w.update_available)P.append(row('Available',w.latest,'ok'));
+  else if(w.checked_at)P.append(row('Checked',new Date(w.checked_at*1000).toLocaleString([],{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})+(w.check_error?' · failed':' · up to date'),w.check_error?'warn':''));
+  if(w.check_error){const n=document.createElement('div');n.className='note';n.textContent=w.check_error;P.append(n)}
+  if(w.update_available&&w.notes){const n=document.createElement('div');n.className='note';n.textContent=w.notes;P.append(n)}
+  const a=document.createElement('div');a.className='ua';
+  const btn=(t,fn,go)=>{const b=document.createElement('button');b.textContent=t;if(go)b.className='go';b.disabled=upBusy||w.busy;b.onclick=e=>{e.stopPropagation();fn()};a.append(b)};
+  if(w.can_update){
+    btn(upBusy?'Working…':'Check for update',upCheck);
+    if(w.update_available)btn('Install '+w.latest,()=>upRun('/update/install',{},'Install version '+w.latest+'? The app restarts (about 20 s).'),true);
+    if(w.previous&&w.previous!==w.version)btn('Back to '+w.previous,()=>upRun('/update/rollback',{to:'previous'},'Go back to version '+w.previous+'?'));
+    else if(w.slot!=='legacy')btn('Use built-in '+(w.legacy||''),()=>upRun('/update/rollback',{to:'legacy'},'Start the built-in version '+(w.legacy||'')+'?'));
+  }
+  P.append(a);
+}
+async function upPost(url,body){
+  upBusy=true;if(!$('pop').hidden)paintPop();
+  try{
+    const r=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body||{})});
+    const j=await r.json().catch(()=>({}));
+    if(last&&j.sw)last.sw=j.sw;
+    if(!r.ok)throw new Error(j.error||'HTTP '+r.status);
+    return j;
+  }finally{upBusy=false;if(!$('pop').hidden)paintPop()}
+}
+async function upCheck(){
+  try{const j=await upPost('/update/check');toast(j.sw.update_available?'Version '+j.sw.latest+' is available':'Up to date ('+j.sw.version+')')}
+  catch(e){toast('Update check failed: '+e.message,true)}
+}
+async function upRun(url,body,q){
+  if(!confirm(q))return;
+  const was=last&&last.sw?last.sw.version:null;
+  try{await upPost(url,body)}catch(e){toast('Failed: '+e.message,true);return}
+  toast('Restarting…',false,60000);upBusy=true;
+  const t0=Date.now();
+  await new Promise(r=>setTimeout(r,4000));
+  while(Date.now()-t0<90000){
+    try{const r=await fetch('/version',{cache:'no-store'});if(r.ok){const v=await r.json();toast('Running '+v.version+' ('+(SLOT[v.slot]||v.slot)+')',v.version===was&&v.slot!=='legacy',4000);setTimeout(()=>location.reload(),1500);return}}catch(e){}
+    await new Promise(r=>setTimeout(r,2000));
+  }
+  upBusy=false;toast('No answer after restart - reload the page',true);
+}
 async function info(force){
   try{
     const r=await fetch('/status',{cache:'no-store'});
     if(!r.ok)throw new Error('HTTP '+r.status);
     last=await r.json();lastAt=Date.now();
+    if(!upSeen&&last.sw&&last.sw.update_available){upSeen=true;toast('Update '+last.sw.latest+' available - see device details',false,5000)}
   }catch(e){last=null}
   paintIcon(last?assess(last):null);
   if(!$('pop').hidden)paintPop();
@@ -1276,4 +1414,5 @@ def index():
 cleanup_startup()
 
 if __name__ == "__main__":
+    threading.Thread(target=background_update_tasks, daemon=True).start()
     app.run(host=HOST, port=PORT, threaded=True)

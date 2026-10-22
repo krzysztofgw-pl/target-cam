@@ -20,10 +20,19 @@ sudo apt-get install -y python3-flask python3-pil
 
 echo "== files"
 mkdir -p "$CAM/static" "$DATA/prev" "$DATA/thumb"
-install -m 644 "$SRC/app.py" "$CAM/app.py"
+# ~/camera is the built-in ("legacy") version: on the read-only root it is the fallback for updates
+for f in app.py updater.py launcher.py VERSION; do install -m 644 "$SRC/$f" "$CAM/$f"; done
 install -m 755 "$SRC/cleanup.sh" "$CAM/cleanup.sh"
 install -m 644 "$SRC"/static/* "$CAM/static/"
-sed -i 's/\r$//' "$CAM/app.py" "$CAM/cleanup.sh"   # guard against CRLF from Windows
+sed -i 's/\r$//' "$CAM/app.py" "$CAM/updater.py" "$CAM/launcher.py" "$CAM/VERSION" "$CAM/cleanup.sh"   # guard against CRLF from Windows
+
+if findmnt /data >/dev/null; then
+  echo "== /data/app (updates)"
+  sudo mkdir -p /data/app
+  sudo chown "$USER_NAME:$USER_NAME" /data/app
+else
+  echo "/data not mounted yet - updates become available after: sudo bash ~/harden.sh prepare"
+fi
 # keep harden.sh in the home directory (replaced on every install), so the
 # unpacked source folder can be deleted: sudo bash ~/harden.sh enable|maintenance
 install -m 755 "$SRC/harden.sh" "$HOME/harden.sh"

@@ -31,6 +31,8 @@ prepare() {
   [[ -L "$H/target" ]] || ln -s /data/target "$H/target"
   chown -R "$U:$U" /data/target
   chown -h "$U:$U" "$H/target"
+  mkdir -p /data/app          # OTA releases (see updater.py)
+  chown "$U:$U" /data/app
   for s in target target-cleanup; do
     mkdir -p "/etc/systemd/system/$s.service.d"
     printf '[Unit]\nRequiresMountsFor=/data\n' > "/etc/systemd/system/$s.service.d/data.conf"

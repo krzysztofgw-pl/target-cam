@@ -1,6 +1,8 @@
 [Unit]
 Description=Target Cam web app
 After=network.target
+# keep restarting: launcher.py falls back to the previous / built-in version after repeated failures
+StartLimitIntervalSec=0
 
 [Service]
 User=__USER__
@@ -11,7 +13,9 @@ Environment=TARGET_DIR=__HOME__/target
 # Environment=HISTORY=24
 # Live preview (defaults shown): LIVE_FPS=2 LIVE_W=854 LIVE_H=480 LIVE_IDLE=20 LIVE_MAX=600
 # If the 1:1 zoom does not start on the Pi 3 A+: Environment="LIVE_EXTRA=--buffer-count 3"
-ExecStart=/usr/bin/python3 __HOME__/camera/app.py
+# Updates: launcher.py starts /data/app/current, falling back to previous, then to this built-in copy
+# Environment=UPDATE_CHECK=0   (no check for a new version after boot)
+ExecStart=/usr/bin/python3 __HOME__/camera/launcher.py
 Restart=always
 RestartSec=3
 

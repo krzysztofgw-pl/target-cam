@@ -1,0 +1,22 @@
+name: Release
+# Push a tag matching VERSION (e.g. VERSION=1.1.0, tag v1.1.0) to publish an update for the Pi.
+on:
+  push:
+    tags: ["v*.*.*"]
+permissions:
+  contents: write
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Tag must match VERSION
+        run: test "v$(tr -d '[:space:]' < VERSION)" = "$GITHUB_REF_NAME"
+      - run: python -m unittest discover -s tests
+      - run: SOURCE_DATE_EPOCH=$(git log -1 --format=%ct) bash tools/build-release.sh
+      - env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" dist/* --title "$GITHUB_REF_NAME" --generate-notes
