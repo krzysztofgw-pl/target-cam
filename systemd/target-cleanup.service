@@ -1,0 +1,11 @@
+[Unit]
+Description=Target Cam photo cleanup
+After=time-sync.target
+
+[Service]
+Type=oneshot
+User=__USER__
+Environment=TARGET_DIR=__HOME__/target
+Environment=KEEP=100
+Environment=DAYS=14
+ExecStart=__HOME__/camera/cleanup.sh

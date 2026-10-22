@@ -1,0 +1,19 @@
+[Unit]
+Description=Target Cam web app
+After=network.target
+
+[Service]
+User=__USER__
+WorkingDirectory=__HOME__/camera
+Environment=TARGET_DIR=__HOME__/target
+# Crop to the target once the camera is mounted (keep the quotes), then: systemctl daemon-reload && systemctl restart target
+# Environment="RPICAM_EXTRA=--roi 0.3,0.3,0.4,0.4 --width 1843 --height 1037"
+# Environment=HISTORY=24
+# Live preview (defaults shown): LIVE_FPS=2 LIVE_W=854 LIVE_H=480 LIVE_IDLE=20 LIVE_MAX=600
+# If the 1:1 zoom does not start on the Pi 3 A+: Environment="LIVE_EXTRA=--buffer-count 3"
+ExecStart=/usr/bin/python3 __HOME__/camera/app.py
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
