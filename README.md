@@ -1,62 +1,63 @@
 # Target Cam
 
-Zdjęcia tarczy na żądanie z Raspberry Pi 3A+ (kamera IMX708, modem LTE HiLink, dostęp przez Tailscale).
-System działa z read-only rootem, więc wypięcie power banku nie psuje karty SD.
+On-demand photos of a long-range target from a Raspberry Pi 3A+ (IMX708 camera, HiLink LTE modem, access via Tailscale).
+The root filesystem is read-only, so unplugging the power bank does not corrupt the SD card.
 
-## Instalacja (nowe Pi)
+## Installation (new Pi)
 
 ```bash
-bash install.sh                 # jako zwykły użytkownik
-sudo bash ~/harden.sh prepare   # partycja "data" -> /data, zdjęcia i /data/app na /data
-sudo bash ~/harden.sh enable    # read-only root, restart
+bash install.sh                 # as the normal user
+sudo bash ~/harden.sh prepare   # "data" partition -> /data; photos and /data/app live there
+sudo bash ~/harden.sh enable    # read-only root, reboots
 ```
 
-## Aktualizacje
+## Updates
 
 ```
-/  (read-only)   ~/camera/            wersja wbudowana ("legacy"), launcher.py
-/data/app/       releases/<wersja>/   pobrane wydania
-                 current, previous    symlinki, przełączane atomowo
-                 state/               licznik startów, wynik sprawdzenia
+/  (read-only)   ~/camera/            built-in ("legacy") version, launcher.py
+/data/app/       releases/<version>/  downloaded releases
+                 current, previous    symlinks, switched atomically
+                 state/               start attempts, last check result
 ```
 
-- `target.service` uruchamia `launcher.py`, który startuje `current`. Jeśli wersja nie wystartuje
-  3 razy z rzędu, launcher wraca do `previous`, a gdy i ta nie działa, do wersji wbudowanej.
-  Aplikacja zeruje licznik, gdy tylko zacznie odpowiadać.
-- Minutę po starcie aplikacja sprawdza (przez LTE) najnowsze wydanie na GitHubie. Nowa wersja
-  pojawia się w szczegółach urządzenia (ikona zasięgu) z przyciskiem **Install**. Tam też są
-  **Check for update** i **Back to …** (powrót do poprzedniej lub wbudowanej wersji).
-- Instalacja: pobranie archiwum, kontrola sha256, rozpakowanie obok, kontrola składni, przełączenie
-  symlinka i restart aplikacji (~20 s). Utrata zasilania w trakcie zostawia starą albo nową wersję.
-  Root zostaje read-only, nie trzeba trybu `maintenance`.
-- Wersja wbudowana zmienia się tylko przez `harden.sh maintenance` + `install.sh` + `harden.sh enable`.
+- `target.service` runs `launcher.py`, which starts `current`. If a version fails to start
+  3 times in a row, the launcher falls back to `previous`, and if that fails too, to the built-in version.
+  The app clears the counter as soon as it answers requests.
+- A minute after boot the app checks GitHub (over LTE) for the latest release. A new version
+  shows up in the device details (signal icon) with an **Install** button. The same panel has
+  **Check for update** and **Back to …** (return to the previous or built-in version).
+- Installing: download the archive, verify sha256, unpack next to the current one, check syntax,
+  switch the symlink and restart the app (~20 s). A power cut at any point leaves either the old or the new version.
+  The root stays read-only; `maintenance` mode is not needed.
+- The built-in version changes only via `harden.sh maintenance` + `install.sh` + `harden.sh enable`.
 
-Z konsoli Pi: `python3 ~/camera/updater.py status|check|install [plik.tar.gz]|rollback|legacy`,
-potem `sudo systemctl restart target`. `install plik.tar.gz` działa bez internetu.
+From the Pi console: `python3 ~/camera/updater.py status|check|install [file.tar.gz]|rollback|legacy`,
+then `sudo systemctl restart target`. `install file.tar.gz` works offline.
 
-Aktualizacja może zmieniać tylko pliki aplikacji (`app.py`, `updater.py`, `static/`, `cleanup.sh`).
-Nowe pakiety apt, zmiany w unitach systemd lub w `launcher.py` wymagają instalacji przez `install.sh`.
+An update can only change app files (`app.py`, `updater.py`, `static/`, `cleanup.sh`).
+New apt packages, systemd unit changes or a new `launcher.py` need a reinstall with `install.sh`.
 
-### Prywatne repo
+### Private repository
 
-Pi potrzebuje tokenu tylko do odczytu: GitHub → Settings → Developer settings → Fine-grained token,
-dostęp tylko do `target-cam`, uprawnienie *Contents: Read-only*. Na Pi:
+The repository is public, so the Pi needs no credentials. If it is ever made private, give the Pi a
+read-only token: GitHub → Settings → Developer settings → Fine-grained token, access to `target-cam` only,
+permission *Contents: Read-only*. On the Pi:
 
 ```bash
 echo 'github_pat_...' > /data/app/github_token && chmod 600 /data/app/github_token
 ```
 
-### Wydanie nowej wersji
+### Publishing a new version
 
-1. Zmień `VERSION` (np. `1.1.0`) i wypchnij / zmerguj to na `main`.
-2. Workflow *Release* uruchamia testy, buduje `target-cam-1.1.0.tar.gz` + `.sha256`
-   i publikuje wydanie `v1.1.0` (tag tworzy się sam). Opis wydania widać na Pi przed instalacją.
+1. Change `VERSION` (e.g. `1.1.0`) and push / merge it to `main`.
+2. The *Release* workflow runs the tests, builds `target-cam-1.1.0.tar.gz` + `.sha256`
+   and publishes release `v1.1.0` (the tag is created automatically). The release notes are shown on the Pi before installing.
 
-## Przejście z dotychczasowej instalacji
+## Migrating an existing installation
 
 ```bash
-sudo bash ~/harden.sh maintenance   # zapisywalny root, restart
-git clone https://github.com/krzysztofgw-pl/target-cam.git && cd target-cam   # lub rozpakuj ZIP z GitHuba
-bash install.sh                      # nowa wersja wbudowana + launcher + /data/app
+sudo bash ~/harden.sh maintenance   # writable root, reboots
+git clone https://github.com/krzysztofgw-pl/target-cam.git && cd target-cam   # or unpack the ZIP from GitHub
+bash install.sh                      # new built-in version + launcher + /data/app
 sudo bash ~/harden.sh enable
 ```
