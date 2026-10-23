@@ -1,0 +1,7 @@
+# Left out of GitHub "Download ZIP" and git archive: not needed on a device
+.github export-ignore
+docs export-ignore
+tests export-ignore
+tools export-ignore
+.gitattributes export-ignore
+.gitignore export-ignore
