@@ -22,6 +22,7 @@ jobs:
           for f in app.py updater.py launcher.py VERSION cleanup.sh install.sh harden.sh systemd/target.service static/icon-192.png; do
             grep -qx "$f" /tmp/pkg || { echo "missing $f"; exit 1; }
           done
+          test -f dist/install.sh
       - name: App answers via the launcher
         run: |
           mkdir -p /tmp/t && export APP_ROOT=/tmp/t/app TARGET_DIR=/tmp/t/target UPDATE_CHECK=0 MODEM_URL=http://127.0.0.1:1

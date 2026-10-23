@@ -48,13 +48,11 @@ The system is built to cope with having its power bank unplugged at any moment: 
    On the Pi, `lsblk -f` should then show a partition with the label `data`.
 3. **Install Tailscale** and log in (`curl -fsSL https://tailscale.com/install.sh | sh && sudo tailscale up`).
    In the Tailscale admin console, enable MagicDNS and HTTPS certificates, so the app gets a `https://<pi>.<tailnet>.ts.net` address.
-4. **Install Target Cam** as the normal user:
+4. **Install Target Cam** with one command, as the normal user:
    ```bash
-   mkdir target-cam && cd target-cam
-   curl -fsSL https://github.com/krzysztofgw-pl/target-cam/releases/latest/download/target-cam.tar.gz | tar xz
-   bash install.sh
+   curl -fsSL https://github.com/krzysztofgw-pl/target-cam/releases/latest/download/install.sh | bash
    ```
-   The release package holds only the files the device needs. A `git clone` also works, but brings the docs, tests and CI files as well.
+   It downloads the latest release, which holds only the files the device needs.
    This installs the Python dependencies (`python3-flask`, `python3-pil`), copies the app to `~/camera`, sets up the systemd units and publishes the app with `tailscale serve`.
 5. **Point the camera at the target**, open the app and use live view to aim and focus.
    To crop each photo to the target, set a region of interest (see [Configuration](#configuration)).
@@ -121,7 +119,7 @@ If the release repository is private, put a fine-grained token with *Contents: R
 ### Publishing a release
 
 1. Change `VERSION` (e.g. `1.1.0`) and push or merge it to `main`.
-2. The *Release* workflow runs the tests, builds `target-cam-1.1.0.tar.gz` with its `.sha256` (plus the same package as `target-cam.tar.gz` for new installs) and publishes release `v1.1.0`. The release notes are what the device shows before installing.
+2. The *Release* workflow runs the tests, builds `target-cam-1.1.0.tar.gz` with its `.sha256` (plus `target-cam.tar.gz` and `install.sh` for new installs) and publishes release `v1.1.0`. The release notes are what the device shows before installing.
 
 ## Updating an older device
 
@@ -129,9 +127,7 @@ Devices installed before the update mechanism existed start `app.py` directly. S
 
 ```bash
 sudo bash ~/harden.sh maintenance   # writable root, reboots
-mkdir target-cam && cd target-cam
-curl -fsSL https://github.com/krzysztofgw-pl/target-cam/releases/latest/download/target-cam.tar.gz | tar xz
-bash install.sh
+curl -fsSL https://github.com/krzysztofgw-pl/target-cam/releases/latest/download/install.sh | bash
 sudo bash ~/harden.sh enable
 ```
 

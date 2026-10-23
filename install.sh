@@ -1,10 +1,21 @@
 #!/usr/bin/env bash
-# Target Cam installer. Run as the normal user (not root): bash install.sh
+# Target Cam installer. Run as the normal user (not root), either from an unpacked release:
+#   bash install.sh
+# or straight from GitHub, which first downloads the latest release package:
+#   curl -fsSL https://github.com/krzysztofgw-pl/target-cam/releases/latest/download/install.sh | bash
 set -euo pipefail
 
 if [[ $EUID -eq 0 ]]; then
   echo "Run as a normal user, not root (the script uses sudo where needed)."
   exit 1
+fi
+
+if [[ -z "${BASH_SOURCE[0]:-}" || ! -f "$(dirname "${BASH_SOURCE[0]}")/app.py" ]]; then
+  REPO="${TARGET_CAM_REPO:-krzysztofgw-pl/target-cam}"
+  PKG="$(mktemp -d)"
+  echo "== downloading the latest Target Cam release"
+  curl -fsSL "https://github.com/$REPO/releases/latest/download/target-cam.tar.gz" | tar xz -C "$PKG"
+  exec bash "$PKG/install.sh"
 fi
 
 SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -67,5 +78,5 @@ if command -v tailscale >/dev/null; then
 else
   echo "tailscale not installed - skipping"
 fi
-echo "harden.sh is in $HOME. The source folder $SRC can be deleted."
+echo "harden.sh is in $HOME. The folder $SRC is no longer needed."
 echo "Done."
